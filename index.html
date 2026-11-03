@@ -309,6 +309,9 @@
           <div class="name" id="fileName"></div>
           <div><span class="badge" id="fmtBadge"></span><span class="stats" id="stats"></span></div>
           <div class="stats" id="objList"></div>
+          <label id="bedRow" class="hidden">Source bed
+            <select id="sourceBed"><option value="">Select a bed</option></select>
+          </label>
         </div>
       </div>
     </div>
@@ -353,6 +356,10 @@
 
     <div class="panel">
       <h2><span class="step">3</span>Download</h2>
+      <p class="hint">INDX 8T profiles: PrusaSlicer alpha13. Convert one source bed at a time, then reopen and slice the result.</p>
+      <details><summary id="settingsSummary">Settings changes</summary><pre id="settingsPreview" style="max-height:240px;overflow:auto;white-space:pre-wrap"></pre></details>
+      <p><label><input type="checkbox" id="acceptSettings"> I reviewed the listed changes and want to use the target presets.</label></p>
+      <p><label><input type="checkbox" id="allowMerge"> Allow the colour merges shown in my tool mapping.</label></p>
       <div class="actions">
         <button class="btn big" id="go"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></svg>Convert and download</button>
         <span class="stats" id="goState"></span>
@@ -401,6 +408,8 @@
 <script src="prusa-profiles.js"></script>
 <script src="bambu-profiles.js"></script>
 <script src="filaments.js"></script>
+<script src="indx-profiles.js"></script>
+<script src="browser-indx.js"></script>
 <script>
 (function () {
   'use strict';
@@ -419,6 +428,7 @@
   const FILAMENT_TYPES = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'PC'];
   const nf = new Intl.NumberFormat('en-US');
   let model = null, fileName = '', target = 'prusa', map = [], used = [], stats = null, thumbUrl = null, outUrl = null;
+  let sourceModel = null;
   let match = []; // match[i] = colour distance for auto-matched colour i, undefined when set by hand
   let profiles = loadProfiles();
   let editId = null; // saved printer shown in "My printers"
@@ -789,6 +799,10 @@
     try {
       const buf = new Uint8Array(await file.arrayBuffer());
       model = await Conv3MF.load3mf(buf);
+      sourceModel = model;
+      $('sourceBed').innerHTML = '<option value="">Select a bed</option>';
+      model.beds.forEach((_b, i) => { const option = document.createElement('option'); option.value = i + 1; option.textContent = `Bed ${i + 1}`; $('sourceBed').appendChild(option); });
+      show($('bedRow'), model.beds.length > 1);
       fileName = file.name;
       stats = Conv3MF.usage(model);
       if (!model.objects.length) throw new Error('No objects found in the file.');
@@ -813,7 +827,7 @@
     b.className = 'badge ' + model.format;
     $('stats').textContent = `${model.objects.length} object${model.objects.length === 1 ? '' : 's'} · ${nf.format(stats.triangles)} triangles · ${nf.format(stats.paintedTriangles)} painted`;
     $('objList').textContent = model.objects.map((o) => o.name + (o.volumes.length > 1 ? ` (${o.volumes.length} parts)` : '') + (o.instances.length > 1 ? ` ×${o.instances.length}` : '')).join(', ');
-    err(model.badPaint ? `Note: ${nf.format(model.badPaint)} triangle${model.badPaint === 1 ? '' : 's'} had broken paint data and will be unpainted.` : '');
+    err(model.badPaint ? `Source has ${nf.format(model.badPaint)} invalid paint annotations. Repair the source before converting.` : '');
     if (thumbUrl) URL.revokeObjectURL(thumbUrl);
     thumbUrl = model.thumbnail ? URL.createObjectURL(new Blob([model.thumbnail], { type: 'image/png' })) : null;
     $('thumb').src = thumbUrl || '';
@@ -866,7 +880,7 @@
     const colours = c.printer ? `the colours from “${c.printer.name}”` : 'the colours';
     let hint;
     if (!prof) hint = `Only the model and painting are saved${c.printer ? `, with colours matched to the slots in “${c.printer.name}”` : ''}. You set up the printer and filaments yourself in ${SLICER_LABEL[target]}.`;
-    else if (target === 'prusa') hint = `The file opens in PrusaSlicer ${ps3() ? '3.0' : '2.9'} with ${prof.name} (${prof.extruders} filament slots) and ${colours} set. If the model has more colours than slots, the nearest ones are merged.${ps3() ? ' For PrusaSlicer 3.0 only the INDX printers are available here for now (the MMU3 was rebuilt in 3.0).' : ''}`;
+    else if (target === 'prusa') hint = `The file opens in PrusaSlicer ${ps3() ? '3.0' : '2.9'} with ${prof.name} (${prof.extruders} filament slots) and ${colours} set. If the model has more colours than slots, review the proposed merges and explicitly allow them before converting.${ps3() ? ' For PrusaSlicer 3.0 only the INDX printers are available here for now (the MMU3 was rebuilt in 3.0).' : ''}`;
     else hint = `The file opens in Bambu Studio with ${prof.name} (0.4 mm nozzle, 0.20mm Standard, Bambu PLA Basic) and one filament per colour with ${colours} set, so the painting shows right away.`;
     if (!c.printer) hint += ' Tip: create a printer under “My printers” at the top and your colours are remembered next time.';
     if (!prof && target === 'prusa' && ps3()) hint += ' Note: PrusaSlicer 3.0 opens such files as geometry only, on the printer you already have selected.';
@@ -925,6 +939,10 @@
     }
     show($('autoMap'), s.length > 0);
     renderLegend();
+    const changes = Conv3MF.settingsChanges(model, printerProfile(target), map);
+    $('settingsSummary').textContent = `${changes.length} settings replaced or not transferred`;
+    $('settingsPreview').textContent = JSON.stringify(changes, null, 2);
+    $('acceptSettings').checked = false;
   }
 
   // What ends up on extruder e: the slot of the chosen printer, else the first file colour sent there
@@ -1078,6 +1096,7 @@
   }
 
   async function go() {
+    err('');
     const btn = $('go');
     btn.disabled = true;
     show($('done'), false);
@@ -1086,6 +1105,8 @@
     try {
       const t0 = performance.now();
       const prof = printerProfile(target);
+      const changes = Conv3MF.settingsChanges(model, prof, map);
+      if (changes.length && !$('acceptSettings').checked) throw new Error('Review the settings changes below Download and tick the acknowledgement.');
       const colors = slots().map((x) => x.color);
       const types = slots().map((x) => x.type);
       const pr = chosen(target).printer;
@@ -1093,6 +1114,7 @@
       let opts;
       if (prof && target === 'prusa') opts = { printer: { config: prof.config, extruders: prof.extruders, colors, types, profiles, materials: prof.materials, materials3: prof.materials3, project3: prof.project3, format: ps3() ? 3 : 2 } };
       else if (prof) opts = { printer: { settings: prof.settings, filamentKeys: BAMBU.filamentKeys, version: BAMBU.version, bed: prof.bed, colors, types, materials: prof.materials } };
+      opts = Object.assign({}, opts, { allowColorMerge: $('allowMerge').checked });
       const blob = await Conv3MF.convert(model, target, map, (i, n) => { $('goState').textContent = `Packing file ${i + 1} of ${n} …`; }, opts);
       if (outUrl) URL.revokeObjectURL(outUrl);
       outUrl = URL.createObjectURL(blob);
@@ -1117,6 +1139,13 @@
   // ------------------------------------------------------------ wiring
 
   const drop = $('drop');
+  $('sourceBed').addEventListener('change', () => {
+    try {
+      model = $('sourceBed').value ? Conv3MF.selectBed(sourceModel, Number($('sourceBed').value)) : sourceModel;
+      stats = Conv3MF.usage(model);
+      setup();
+    } catch (e) { model = sourceModel; stats = Conv3MF.usage(model); setup(); err(e.message); }
+  });
   $('pick').addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; });
   ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove('over'); }));

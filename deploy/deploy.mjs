@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 const site = join(here, '..');
 const out = join(here, 'public', 'converter');
-const FILES = ['index.html', 'converter.js', 'prusa-profiles.js', 'bambu-profiles.js', 'filaments.js', 'honeycomb-logo.png', 'honeycomb-logo-dark.png'];
+const FILES = ['index.html', 'converter.js', 'prusa-profiles.js', 'bambu-profiles.js', 'filaments.js', 'indx-profiles.js', 'browser-indx.js', 'honeycomb-logo.png', 'honeycomb-logo-dark.png'];
 
 rmSync(join(here, 'public'), { recursive: true, force: true });
 mkdirSync(out, { recursive: true });

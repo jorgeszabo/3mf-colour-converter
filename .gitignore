@@ -11,3 +11,6 @@ result.json
 
 # The downloaded honeycombplanner.com site is a separate project (and holds third-party models)
 honeycomb-site/
+
+# Machine-local conversion inputs, reports, and slicing artifacts
+.local/

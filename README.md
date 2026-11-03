@@ -1,5 +1,27 @@
 # 3MF Colour Converter
 
+This fork adds a local chat CLI for **PrusaSlicer 3.0.0-alpha13 / CORE One INDX
+8T**, a refreshable snapshot of installed INDX profiles, explicit source-bed
+selection, units and printable-flag fixes, material/settings audits, native
+reopen-and-slice validation, and regression tests. See
+[the chat workflow](docs/CHAT_WORKFLOW.md). Original project and author:
+[haglundmorten-code/3mf-colour-converter](https://github.com/haglundmorten-code/3mf-colour-converter).
+
+```sh
+node cli.cjs inspect /path/to/source.3mf
+node cli.cjs plan /path/to/source.3mf
+node cli.cjs convert /path/to/source.3mf -o /path/to/converted.3mf --accept-settings-changes
+npm test
+```
+
+Conversion uses one explicitly selected source bed at a time. Common Prusa
+process choices are retained; other settings changes are reported for review.
+The CLI saves the final 3MF after alpha13 validation succeeds. Source models
+remain local and are not included in this repository.
+
+The upstream description below applies to the original browser converter.
+The live Honeycomb Planner site is upstream's deployment, not this fork.
+
 Moves painted multi-colour models between **Bambu Studio / OrcaSlicer** and **PrusaSlicer** (2.9 and 3.0) without
 repainting them. Everything runs in the browser; files are never uploaded.
 

@@ -1,0 +1,12 @@
+{
+  "name": "3mf-colour-converter-indx",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0",
+  "engines": { "node": ">=24" },
+  "bin": { "3mf-chat": "cli.cjs" },
+  "scripts": {
+    "test": "node --test test/*.test.cjs",
+    "refresh-profiles": "node tools/refresh-indx.cjs"
+  }
+}

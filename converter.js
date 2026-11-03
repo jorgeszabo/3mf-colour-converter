@@ -397,7 +397,10 @@
   }
 
   function parseModel(text) {
-    const res = { meta: {}, objects: new Map(), build: [] };
+    const unit = parseAttrs((/<model\b([^>]*)>/.exec(text) || [null, ''])[1]).unit || 'millimeter';
+    const scale = { micron: 0.001, millimeter: 1, centimeter: 10, meter: 1000, inch: 25.4, foot: 304.8 }[unit];
+    if (!scale) throw new Error('Unsupported 3MF unit: ' + unit);
+    const res = { unit, meta: {}, objects: new Map(), build: [] };
     const resStart = text.indexOf('<resources');
     const resEnd = text.lastIndexOf('</resources>');
     const outside = resStart >= 0 ? text.slice(0, resStart) + (resEnd >= 0 ? text.slice(resEnd) : '') : text;
@@ -441,6 +444,14 @@
         res.build.push({ objectid: a.objectid, transform: parse12(a.transform), printable: a.printable !== '0' });
       }
     }
+    // Normalize coordinates and translations once, including production-extension submodels.
+    if (scale !== 1) {
+      for (const o of res.objects.values()) {
+        if (o.mesh) for (let n = 0; n < o.mesh.vertices.length; n++) o.mesh.vertices[n] *= scale;
+        for (const c of o.components || []) for (let n = 9; n < 12; n++) c.transform[n] *= scale;
+      }
+      for (const it of res.build) for (let n = 9; n < 12; n++) it.transform[n] *= scale;
+    }
     return res;
   }
 
@@ -463,7 +474,8 @@
     for (let start = 0, first = true; start < u8.length; first = false) {
       const hit = start + MODEL_PIECE < u8.length ? indexOfBytes(u8, END_OBJECT, start + MODEL_PIECE) : -1;
       const end = hit < 0 ? u8.length : hit + END_OBJECT.length;
-      const part = parseModel((first ? '' : '<resources>') + dec.decode(u8.subarray(start, end)));
+      const part = parseModel((first ? '' : `<model unit="${res.unit}"><resources>`) + dec.decode(u8.subarray(start, end)));
+      if (first) res.unit = part.unit;
       Object.assign(res.meta, part.meta);
       for (const [id, o] of part.objects) res.objects.set(id, o);
       res.build.push(...part.build);
@@ -645,6 +657,11 @@
     if (prusa3) for (const o of prusa3.objects || []) {
       p3Objects.set(String(o.id), o);
       for (const v of o.volumes || []) p3Volumes.set(String(v.id), v);
+      // alpha13 stores printability here, indexed by global build-item order,
+      // and ignores the standard XML printable attribute on native projects.
+      for (const it of o.instances || []) {
+        if (Number.isInteger(it.ord) && root.build[it.ord] && it.printable === false) root.build[it.ord].printable = false;
+      }
     }
     // Painting normally sits on the triangles too; Slic3r_facets_annotation.json is only read for volumes without it.
     let p3Facets = null;
@@ -667,15 +684,17 @@
       const c = o.components[0];
       const target = root.objects.get(String(c.objectid));
       if (c.path || !target || !target.mesh || !prusaSettings.has(String(c.objectid))) return it;
-      return { objectid: c.objectid, transform: mul12(c.transform, it.transform) };
+      return { ...it, objectid: c.objectid, transform: mul12(c.transform, it.transform) };
     }
 
     const order = [];
     const instances = new Map();
+    const printables = new Map();
     for (const raw of root.build) {
       const it = instanceOf(raw);
-      if (!instances.has(it.objectid)) { instances.set(it.objectid, []); order.push(it.objectid); }
+      if (!instances.has(it.objectid)) { instances.set(it.objectid, []); printables.set(it.objectid, []); order.push(it.objectid); }
       instances.get(it.objectid).push(it.transform);
+      printables.get(it.objectid).push(it.printable !== false);
     }
 
     const objects = [];
@@ -698,10 +717,12 @@
       const ps = prusaSettings.get(String(oid));
       const p3o = p3Objects.get(String(oid));
       const object = {
+        sourceId: String(oid),
         name: (bs && bs.meta.name) || (ps && ps.meta.name) || robj.attrs.name || `Object ${objects.length + 1}`,
         extruder: +((bs && bs.meta.extruder) || (ps && ps.meta.extruder) || (p3o && p3o.object_settings && p3o.object_settings.extruder) || 1) || 1,
         volumes: [],
         instances: instances.get(oid),
+        instancePrintable: printables.get(oid),
       };
       for (const pc of pieces) {
         const vertices = transformVertices(pc.mesh.vertices, pc.transform);
@@ -799,6 +820,48 @@
       if (e) { thumbnail = await e.bytes(); break; }
     }
 
+    const sourceSettings = [];
+    if (prusa3) for (const [i, g] of (prusa3.config_containers || []).entries()) {
+      for (const section of ['print_settings', 'toolprint_settings']) {
+        sourceSettings.push({ scope: `group ${i + 1}/${section}`, values: (g.configuration || {})[section] || {} });
+      }
+    }
+    if (format === 'bambu' && zip.get('Metadata/project_settings.config')) {
+      sourceSettings.push({ scope: 'Bambu project', values: JSON.parse(await zip.get('Metadata/project_settings.config').text()) });
+    }
+    if (!prusa3 && format === 'prusa' && zip.get('Metadata/Slic3r_PE.config')) {
+      sourceSettings.push({ scope: 'Prusa 2 project', values: parseIni(await zip.get('Metadata/Slic3r_PE.config').text()) });
+    }
+    // Retain every override in the audit, including settings with no equivalent in the target slicer.
+    const overrides = (scope, values, handled) => {
+      const rest = Object.fromEntries(Object.entries(values || {}).filter(([k]) => !handled.includes(k)));
+      if (Object.keys(rest).length) sourceSettings.push({ scope, values: rest });
+    };
+    for (const [id, o] of bambuSettings) {
+      overrides(`object ${id}`, o.meta, ['name', 'extruder']);
+      for (const [pid, v] of o.parts) overrides(`object ${id}/part ${pid}`, v.meta, ['name', 'extruder', 'matrix']);
+    }
+    for (const [id, o] of prusaSettings) {
+      overrides(`object ${id}`, o.meta, ['name', 'extruder']);
+      for (const [i, v] of o.volumes.entries()) overrides(`object ${id}/volume ${i}`, v.meta, ['name', 'extruder', 'matrix', 'modifier', 'volume_type']);
+    }
+    for (const [id, o] of p3Objects) {
+      overrides(`object ${id}`, o.object_settings, ['extruder', 'wipe_into_objects']);
+      overrides(`object ${id}/features`, o, ['id', 'volumes', 'instances', 'object_settings']);
+      for (const v of o.volumes || []) overrides(`object ${id}/volume ${v.id}`, v.volume_settings, ['extruder', 'wipe_into_infill']);
+    }
+    const beds = [];
+    if (prusa3) for (const [groupIndex, g] of (prusa3.config_containers || []).entries()) {
+      for (const b of g.beds || []) beds.push({ groupIndex, x: b.position_x, y: b.position_y, shape: g.configuration.printer_settings.bed_shape });
+    }
+    if (bambuCfg) eachBlock(await bambuCfg.text(), 'plate', (_a, body) => {
+      const members = [];
+      eachBlock(body, 'model_instance', (_b, mb) => {
+        const meta = readMeta(mb);
+        members.push({ objectId: String(meta.object_id), instance: Number(meta.instance_id || 0) });
+      });
+      beds.push({ members });
+    });
     return {
       format,
       application: app,
@@ -807,7 +870,64 @@
       objects,
       thumbnail,
       badPaint,
+      beds,
+      sourceSettings,
     };
+  }
+
+  // Multi-bed migration is deliberately explicit. Convert one source bed at a time;
+  // never flatten a project into a single potentially overlapping/out-of-bounds bed.
+  function selectBed(model, number) {
+    if (!Number.isInteger(number) || number < 1 || number > Math.max(1, model.beds.length)) throw new Error('Invalid source bed: ' + number);
+    if (!model.beds.length) return model;
+    const bed = model.beds[number - 1];
+    const objects = model.objects.map((o) => {
+      const keep = o.instances.map((t, i) => {
+        if (bed.members) return bed.members.some((m) => m.objectId === o.sourceId && m.instance === i);
+        const bounds = instanceBounds(o, t);
+        const cx = (bounds[0] + bounds[2]) / 2, cy = (bounds[1] + bounds[3]) / 2;
+        const hits = model.beds.filter((b) => !b.members && cx >= b.x + Math.min(...b.shape.map((p) => p[0])) && cx <= b.x + Math.max(...b.shape.map((p) => p[0])) && cy >= b.y + Math.min(...b.shape.map((p) => p[1])) && cy <= b.y + Math.max(...b.shape.map((p) => p[1])));
+        if (hits.length !== 1) throw new Error(`Cannot unambiguously assign ${o.name} to a source bed. Arrange it in the source slicer first.`);
+        return hits[0] === bed;
+      });
+      return { ...o, instances: o.instances.filter((_t, i) => keep[i]).map((t) => { const m = t.slice(); m[9] -= bed.x || 0; m[10] -= bed.y || 0; return m; }), instancePrintable: o.instances.map((_t, i) => o.instancePrintable[i]).filter((_p, i) => keep[i]) };
+    }).filter((o) => o.instances.length);
+    if (!objects.length) throw new Error('The selected source bed is empty.');
+    const selectedIds = new Set(objects.map((o) => o.sourceId));
+    return { ...model, objects, beds: [], selectedBed: number, sourceSettings: model.sourceSettings.filter((s) => {
+      if (s.scope.startsWith('group ')) return s.scope.startsWith(`group ${bed.groupIndex + 1}/`);
+      const objectScope = /^object ([^/]+)/.exec(s.scope);
+      return !objectScope || selectedIds.has(objectScope[1]);
+    }) };
+  }
+
+  function instanceBounds(o, t) {
+    const b = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const v of o.volumes.filter((v) => v.type === 'part')) {
+      const a = v.vertices;
+      for (let i = 0; i < a.length; i += 3) {
+        const x = a[i] * t[0] + a[i + 1] * t[3] + a[i + 2] * t[6] + t[9];
+        const y = a[i] * t[1] + a[i + 1] * t[4] + a[i + 2] * t[7] + t[10];
+        b[0] = Math.min(b[0], x); b[1] = Math.min(b[1], y); b[2] = Math.max(b[2], x); b[3] = Math.max(b[3], y);
+      }
+    }
+    return b;
+  }
+
+  function settingsChanges(model, printer, mapArr = []) {
+    const changes = (model.sourceSettings || []).flatMap((s) => Object.entries(s.values).flatMap(([key, before]) => {
+      const section = s.scope.split('/')[1];
+      const after = printer && printer.project3 && printer.project3.configuration[section] && printer.project3.configuration[section][key];
+      return JSON.stringify(before) === JSON.stringify(after) ? [] : [{ scope: s.scope, key, before, after: after === undefined ? null : after, action: after === undefined ? 'not transferred' : 'replaced' }];
+    }));
+    if (printer && printer.project3) for (const i of usage(model).filaments.keys()) {
+      const tool = mapIndex(mapArr, i) - 1;
+      const source = model.filaments[i - 1];
+      const selected = printer.profiles && printer.profiles[tool];
+      const after = selected ? selected.material : printer.project3.preset.materials[tool];
+      if (source && after && source.name !== after.name) changes.push({ scope: `source colour ${i}`, key: 'material preset', before: source, after: after.name, action: 'mapped to target preset' });
+    }
+    return changes;
   }
 
   // ---------------------------------------------------------------- statistics
@@ -991,7 +1111,8 @@
     const bed0 = [Math.min(...bx), Math.min(...by)], bed1 = [Math.max(...bx), Math.max(...by)];
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     model.objects.forEach((o, k) => {
-      for (const m of instances[k]) {
+      for (const [ii, m] of instances[k].entries()) {
+        if (o.instancePrintable && o.instancePrintable[ii] === false) continue;
         for (const v of o.volumes) {
           const a = v.vertices;
           for (let i = 0; i < a.length; i += 3) {
@@ -1079,8 +1200,14 @@
       objects.push({ id: objId, volumes, object_settings: { extruder: Math.min(mapIndex(mapArr, o.extruder) || 1, tools), wipe_into_objects: false } });
     });
     out.w(' </resources>\n <build>\n');
+    let buildOrdinal = 0;
     instances.forEach((list, k) => {
-      for (const t of list) out.w(`  <item objectid="${objectIds[k]}" transform="${fmt12(t)}" />\n`);
+      list.forEach((t, i) => {
+        const printable = !model.objects[k].instancePrintable || model.objects[k].instancePrintable[i] !== false;
+        if (!printable) (objects[k].instances || (objects[k].instances = [])).push({ ord: buildOrdinal, printable: false });
+        out.w(`  <item objectid="${objectIds[k]}" transform="${fmt12(t)}" printable="${printable ? 1 : 0}" />\n`);
+        buildOrdinal++;
+      });
     });
     out.w(' </build>\n</model>\n');
 
@@ -1156,7 +1283,7 @@
     });
     out.w(' </resources>\n <build>\n');
     instances.forEach((list, k) => {
-      for (const t of list) out.w(`  <item objectid="${k + 1}" transform="${fmt12(t)}" printable="1"/>\n`);
+      list.forEach((t, i) => out.w(`  <item objectid="${k + 1}" transform="${fmt12(t)}" printable="${model.objects[k].instancePrintable && model.objects[k].instancePrintable[i] === false ? 0 : 1}"/>\n`));
     });
     out.w(' </build>\n</model>\n');
     cfg.push('</config>\n');
@@ -1272,7 +1399,7 @@
       instances[k].forEach((t, ii) => {
         if (ii === 0) writeParts('');
         const objId = nextId++;
-        items.push({ objId, t });
+        items.push({ objId, t, printable: !o.instancePrintable || o.instancePrintable[ii] !== false });
         rootOut.w(`  <object id="${objId}" p:UUID="${uuid()}" type="model">\n   <components>\n`);
         partIds.forEach((pid) => {
           rootOut.w(`    <component p:path="/${path}" objectid="${pid}" p:UUID="${uuid()}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n`);
@@ -1297,7 +1424,7 @@
       });
     });
     rootOut.w(` </resources>\n <build p:UUID="${uuid()}">\n`);
-    for (const { objId, t } of items) rootOut.w(`  <item objectid="${objId}" p:UUID="${uuid()}" transform="${fmt12(t)}" printable="1"/>\n`);
+    for (const { objId, t, printable } of items) rootOut.w(`  <item objectid="${objId}" p:UUID="${uuid()}" transform="${fmt12(t)}" printable="${printable ? 1 : 0}"/>\n`);
     rootOut.w(' </build>\n</model>\n');
 
     cfg.push('  <plate>\n    <metadata key="plater_id" value="1"/>\n    <metadata key="plater_name" value=""/>\n    <metadata key="locked" value="false"/>\n');
@@ -1339,9 +1466,18 @@ ${rels.join('\n')}
   async function convert(model, target, mapArr, onProgress, opts) {
     const map = mapArr || [];
     const printer = opts && opts.printer;
+    if ((model.beds || []).length > 1) throw new Error('This file has multiple beds. Select a source bed with the chat CLI (--bed N); beds cannot be combined implicitly.');
+    if (model.badPaint) throw new Error('The source contains invalid paint data. Repair the source before converting.');
+    const destinations = new Set();
+    for (const i of usage(model).filaments.keys()) {
+      const dest = mapIndex(map, i);
+      if (!Number.isInteger(dest) || dest < 1 || (printer && printer.extruders && dest > printer.extruders)) throw new Error('Invalid target tool for source colour ' + i);
+      if (destinations.has(dest) && !(opts && opts.allowColorMerge)) throw new Error('Multiple source colours map to one tool. Review the mapping and explicitly allow colour merging.');
+      destinations.add(dest);
+    }
     const files = target === 'prusa' ? buildPrusa(model, map, printer) : buildBambu(model, map, printer);
     return writeZip(files, onProgress);
   }
 
-  return { load3mf, convert, usage, remapPaint, walkPaint, readZip, writeZip, parseModel };
+  return { load3mf, convert, usage, remapPaint, walkPaint, readZip, writeZip, parseModel, selectBed, settingsChanges, instanceBounds };
 });
