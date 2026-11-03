@@ -48,7 +48,17 @@ try {
   // Keep exports portable and unbound to an empty slicer bed/session.
   group.beds = [{ position_x: 0, position_y: 0, wipe_tower: null, custom_gcode: null }];
   group.configuration.printer_settings.binary_gcode = false;
-  const data = { schemaVersion: 1, slicerVersion: version, vendorVersion: group.preset.hw_config.repo_version, printerName: printer.name, group, materials };
+  const processes = {};
+  for (const option of options.print_profiles) {
+    let g = group;
+    if (option.name !== print.name) {
+      const file = path.join(temp, 'process-' + option.name + '.json');
+      run('--printer-profile', printer.name, '--print-profile', option.name, '--tool-print-profile', option.tool_print_profiles[0], '--material-profile', 'Generic PLA @COREONEINDX HF0.4@COREONEINDX 0.4', '--save', file);
+      g = JSON.parse(fs.readFileSync(file, 'utf8'));
+    }
+    processes[option.name] = { layerHeight: g.configuration.print_settings.layer_height, print: g.preset.print, tools: g.preset.tools, printSettings: g.configuration.print_settings, toolprintSettings: g.configuration.toolprint_settings };
+  }
+  const data = { schemaVersion: 1, slicerVersion: version, vendorVersion: group.preset.hw_config.repo_version, printerName: printer.name, group, materials, processes };
   const js = '// Generated from installed PrusaSlicer presets by tools/refresh-indx.cjs. AGPL-3.0.\n' +
     '(function(root){const data=' + JSON.stringify(data) + ';\n' +
     "if(typeof module==='object'&&module.exports)module.exports=data;else root.INDX_PROFILES=data;\n})(typeof self!=='undefined'?self:this);\n";

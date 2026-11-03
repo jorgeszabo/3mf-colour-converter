@@ -36,6 +36,13 @@ machine limits come from current INDX profiles. Bambu/Orca process settings
 and unsupported object/volume overrides are audited rather than guessed.
 `--target-process` deliberately uses target process defaults instead.
 
+When the source layer height matches an installed INDX process (such as
+0.15mm), the CLI selects that actual print and tool-print preset, including
+its visible name. It does not retain a 0.20mm preset label over 0.15mm settings.
+Uniform wall/infill choices are kept across tools so changing the selected
+extruder does not silently restore another tool's process defaults. Material
+presets remain separate from these process settings.
+
 For individual materials, tools or colours, pass `--config mapping.json`:
 
 ```json

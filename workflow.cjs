@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { spawnSync } = require('node:child_process');
+const { isDeepStrictEqual } = require('node:util');
 const C = require('./converter');
 
 const PROCESS_KEYS = new Set(['layer_height', 'first_layer_height', 'perimeters', 'fill_density', 'fill_pattern', 'top_solid_layers', 'bottom_solid_layers', 'top_solid_min_thickness', 'bottom_solid_min_thickness', 'brim_width', 'brim_type', 'brim_separation', 'support_material', 'support_material_auto', 'support_material_threshold', 'support_material_style', 'support_material_pattern', 'support_material_spacing', 'support_material_contact_distance', 'support_material_bottom_contact_distance', 'support_material_interface_layers', 'support_material_interface_spacing', 'raft_layers', 'ironing', 'ironing_type', 'seam_position', 'fuzzy_skin', 'fuzzy_skin_thickness', 'fuzzy_skin_point_dist']);
@@ -14,6 +15,14 @@ function summary(model) {
 
 function plan(model, data, options = {}) {
   const printer = { project3: structuredClone(data.group), format: 3, extruders: 8, colors: [], profiles: [] };
+  const sourceHeight = (model.sourceSettings || []).filter((s) => s.scope.startsWith('group ') && s.scope.endsWith('/print_settings') && Number.isFinite(s.values.layer_height)).at(-1)?.values.layer_height;
+  const process = !options.targetProcess && Object.values(data.processes || {}).find((p) => Math.abs(p.layerHeight - sourceHeight) < 1e-6);
+  if (process) {
+    printer.project3.configuration.print_settings = structuredClone(process.printSettings);
+    printer.project3.configuration.toolprint_settings = structuredClone(process.toolprintSettings);
+    printer.project3.preset.print = structuredClone(process.print);
+    printer.project3.preset.tools = structuredClone(process.tools);
+  }
   const map = [];
   const assignments = [];
   const config = options.config || {};
@@ -49,15 +58,25 @@ function plan(model, data, options = {}) {
     if (!section.scope.startsWith('group ') || !['print_settings', 'toolprint_settings'].includes(key)) continue;
     for (const [name, value] of Object.entries(section.values)) {
       if (!PROCESS_KEYS.has(name) || !(name in printer.project3.configuration[key])) continue;
-      if (key === 'print_settings') printer.project3.configuration[key][name] = structuredClone(value);
-      else if (Array.isArray(value)) for (const a of assignments) {
-        if (a.source <= value.length) printer.project3.configuration[key][name][a.tool - 1] = structuredClone(value[a.source - 1]);
+      if (key === 'print_settings') {
+        printer.project3.configuration[key][name] = structuredClone(value);
+        if (name in printer.project3.configuration.toolprint_settings) {
+          printer.project3.configuration.toolprint_settings[name] = Array.from({ length: 8 }, () => structuredClone(value));
+        }
+      }
+      else if (Array.isArray(value)) {
+        // Uniform process choices should remain uniform if the user later changes tools.
+        if (value.length && value.every((v) => isDeepStrictEqual(v, value[0]))) {
+          printer.project3.configuration[key][name] = Array.from({ length: 8 }, () => structuredClone(value[0]));
+        } else for (const a of assignments) {
+          if (a.source <= value.length) printer.project3.configuration[key][name][a.tool - 1] = structuredClone(value[a.source - 1]);
+        }
       }
       preserved.push(section.scope + '/' + name);
     }
   }
   const changes = C.settingsChanges(model, printer, map);
-  return { printer, map, report: { source: summary(model), target: { slicer: data.slicerVersion, vendorVersion: data.vendorVersion, printer: data.printerName, toolCount: 8, nozzle: '0.4 HF', activeTools: [...new Set(assignments.map((a) => a.tool))] }, assignments, preservedProcess: preserved, settingsChanges: changes, selectedBed: model.selectedBed || null, validation: { passed: false, reason: 'Not yet validated' } } };
+  return { printer, map, report: { source: summary(model), target: { slicer: data.slicerVersion, vendorVersion: data.vendorVersion, printer: data.printerName, toolCount: 8, nozzle: '0.4 HF', activeTools: [...new Set(assignments.map((a) => a.tool))], processPreset: printer.project3.preset.print.name, layerHeight: printer.project3.configuration.print_settings.layer_height }, assignments, preservedProcess: preserved, settingsChanges: changes, selectedBed: model.selectedBed || null, validation: { passed: false, reason: 'Not yet validated' } } };
 }
 
 function assertHardware(group) {

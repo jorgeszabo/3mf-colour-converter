@@ -123,9 +123,37 @@ test('plan preserves process choices and reports dropped overrides', async () =>
   const p = W.plan(m, data);
   assert.equal(p.printer.project3.configuration.print_settings.layer_height, 0.15);
   assert.equal(p.printer.project3.configuration.print_settings.perimeters, 5);
+  assert.deepEqual(p.printer.project3.configuration.toolprint_settings.perimeters, Array(8).fill(5));
   assert.equal(p.printer.profiles[0].type, 'PETG');
   assert.ok(p.report.settingsChanges.some((c) => c.key === 'custom_speed' && c.action === 'not transferred'));
   assert.deepEqual(p.report.target.activeTools, [1]);
+});
+
+test('0.15mm source selects real Detail presets and preserves process choices across PETG materials', async () => {
+  const m = await load(); m.filaments = [{ color: '#AABBCC', type: 'PETG', name: '' }];
+  m.sourceSettings = [
+    { scope: 'group 1/print_settings', values: { layer_height: 0.15, perimeters: 5, fill_density: { value: 40, is_percent: true } } },
+    { scope: 'group 1/toolprint_settings', values: { perimeters: Array(8).fill(5), fill_density: Array.from({ length: 8 }, () => ({ value: 40, is_percent: true })) } }
+  ];
+  const names = ['Generic PETG @', 'Prusament PETG @'].map((prefix) => Object.keys(data.materials).find((n) => n.startsWith(prefix)));
+  assert.ok(names.every(Boolean));
+  const projects = [];
+  for (const material of names) {
+    const p = W.plan(m, data, { material, config: { map: { 1: 3 } } });
+    assert.equal(p.report.target.processPreset, '0.15mm');
+    assert.equal(p.report.target.layerHeight, 0.15);
+    assert.ok(p.printer.project3.preset.tools.every((t) => t.name.startsWith('0.15mm Detail')));
+    assert.deepEqual(p.printer.project3.configuration.toolprint_settings.perimeters, Array(8).fill(5));
+    const blob = await C.convert(m, 'prusa', p.map, null, { printer: p.printer });
+    const zip = await C.readZip(new Uint8Array(await blob.arrayBuffer()));
+    projects.push(JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0]);
+  }
+  for (const key of ['print_settings', 'toolprint_settings']) {
+    assert.deepEqual(projects[0].configuration[key], projects[1].configuration[key]);
+  }
+  assert.equal(projects[0].preset.print.name, '0.15mm');
+  assert.equal(projects[1].preset.materials[2].root_id, 'Prusament PETG');
+  assert.deepEqual(W.plan(m, data, { targetProcess: true }).report.target.processPreset, '0.20mm');
 });
 
 test('validation rejects a slicer exit-zero no-output failure, even with stale G-code', async () => {
