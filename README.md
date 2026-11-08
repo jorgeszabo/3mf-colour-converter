@@ -11,6 +11,8 @@ reopen-and-slice validation, and regression tests. See
 node cli.cjs inspect /path/to/source.3mf
 node cli.cjs plan /path/to/source.3mf
 node cli.cjs convert /path/to/source.3mf -o /path/to/converted.3mf --accept-settings-changes
+node cli.cjs optimize plate1.3mf plate2.3mf --mode speed -o .local/speed.3mf
+node cli.cjs optimize plate1.3mf plate2.3mf --mode fewer-beds -o .local/fewer-beds.3mf
 npm test
 ```
 
@@ -18,6 +20,13 @@ Conversion uses one explicitly selected source bed at a time. Common Prusa
 process choices are retained; other settings changes are reported for review.
 The CLI saves the final 3MF after alpha13 validation succeeds. Source models
 remain local and are not included in this repository.
+
+The native `optimize` command combines configured INDX projects into **one 3MF**.
+`speed` compares actual slice estimates, including tool changes and per-bed
+startup, and selects the fastest tested layout. `fewer-beds` prioritizes fewer
+beds even when that takes longer. Neither changes quality, paint or object tool
+assignments. For an existing multi-bed native project, explicitly select
+`--beds 1,2,...`. See the workflow for compatibility limits and validation.
 
 The upstream description below applies to the original browser converter.
 The live Honeycomb Planner site is upstream's deployment, not this fork.

@@ -11,21 +11,33 @@ const W = require('./workflow.cjs');
 async function main(args) {
   const { values: v, positionals } = parseArgs({ args, allowPositionals: true, options: {
     output: { type: 'string', short: 'o' }, bed: { type: 'string' }, material: { type: 'string' }, config: { type: 'string' },
-    report: { type: 'string' }, slicer: { type: 'string' }, 'accept-settings-changes': { type: 'boolean' },
+    report: { type: 'string' }, slicer: { type: 'string' }, mode: { type: 'string' }, beds: { type: 'string' }, 'accept-settings-changes': { type: 'boolean' },
     'allow-color-merge': { type: 'boolean' }, 'target-process': { type: 'boolean' }, force: { type: 'boolean' }, help: { type: 'boolean' }
   } });
   const [command, input] = positionals;
   if (v.help || !command) {
-    console.log('3mf-chat: inspect FILE | plan FILE | convert FILE -o OUTPUT.3mf | validate FILE | profiles\nOptions: --bed N --material PRESET --config mapping.json --accept-settings-changes\n         --allow-color-merge --target-process --report FILE --slicer PATH --force\nConvert always reopens and slices in alpha13 before publishing the output. No printing or uploads.');
+    console.log('3mf-chat: inspect FILE | plan FILE | convert FILE -o OUTPUT.3mf | validate FILE | profiles\n          optimize NATIVE.3mf [...] --mode speed|fewer-beds -o OUTPUT.3mf\nOptions: --bed N --beds 1,2,... --material PRESET --config mapping.json --accept-settings-changes\n         --allow-color-merge --target-process --report FILE --slicer PATH --force\nConvert/optimize always reopen and slice in alpha13 before publishing. No printing or uploads.');
     return;
   }
-  if (!['profiles', 'inspect', 'plan', 'convert', 'validate'].includes(command)) throw new Error('Unknown command: ' + command);
+  if (!['profiles', 'inspect', 'plan', 'convert', 'validate', 'optimize'].includes(command)) throw new Error('Unknown command: ' + command);
   const data = require('./indx-profiles');
   if (command === 'profiles') { console.log(JSON.stringify({ slicer: data.slicerVersion, vendorVersion: data.vendorVersion, printer: data.printerName, materials: Object.keys(data.materials) }, null, 2)); return; }
   if (!input) throw new Error('An input 3MF is required.');
   const file = path.resolve(input);
   const slicer = v.slicer || process.env.PRUSA_SLICER || '/Applications/PrusaSlicer-3.0.0-alpha13.app/Contents/MacOS/PrusaSlicer';
-  if (command === 'validate') { console.log(JSON.stringify(await W.validate(file, slicer, file + '.validation'), null, 2)); return; }
+  if (command === 'optimize') {
+    if (!v.output?.toLowerCase().endsWith('.3mf')) throw new Error('Choose a .3mf --output path.');
+    if (v.bed || v.material || v.config || v['target-process'] || v['allow-color-merge']) throw new Error('Optimize preserves configured native settings; use --beds for source bed selection and convert materials first.');
+    const result = await require('./layout.cjs').optimize(positionals.slice(1).map((f) => path.resolve(f)), { mode: v.mode, beds: v.beds, output: path.resolve(v.output), report: v.report ? path.resolve(v.report) : undefined, slicer, force: v.force });
+    console.log(JSON.stringify(result, null, 2)); return;
+  }
+  if (v.mode || v.beds) throw new Error('--mode and --beds are options for optimize. Use --bed N for conversion.');
+  if (command === 'validate') {
+    const zip = await C.readZip(fs.readFileSync(file)), entry = zip.get('Metadata/PrusaSlicer3_project.json');
+    const project = entry && JSON.parse(await entry.text());
+    const multiple = project && project.config_containers.some((g) => g.beds.length > 1);
+    console.log(JSON.stringify(await (multiple ? require('./layout.cjs').validateProject(file, slicer, file + '.validation') : W.validate(file, slicer, file + '.validation')), null, 2)); return;
+  }
   const source = fs.readFileSync(file);
   let model = await C.load3mf(source);
   if (command === 'inspect') { console.log(JSON.stringify(W.summary(model), null, 2)); return; }

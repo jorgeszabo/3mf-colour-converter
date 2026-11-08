@@ -86,6 +86,65 @@ Slicing is not proof of physical fit, adhesion, strength or colour legibility.
 Do not send prints automatically. Sources, reports and print files belong in
 project folders or the ignored `.local/` directory, outside version control.
 
+## One project, optimized for speed or fewer beds
+
+After conversion and settings review, optimize **configured native INDX 8T
+projects**. This step preserves their settings, colours, painted triangles,
+object/volume overrides and disabled instances instead of reconverting them.
+It translates XY positions without changing orientation, Z, scale or quality.
+
+```sh
+# Multiple filenames explicitly select those converted single-bed projects.
+node cli.cjs optimize plate1.3mf plate2.3mf plate3.3mf plate4.3mf \
+  --mode speed -o .local/project-speed.3mf
+node cli.cjs optimize plate1.3mf plate2.3mf plate3.3mf plate4.3mf \
+  --mode fewer-beds -o .local/project-fewer-beds.3mf
+
+# For an existing multi-bed native project, select beds explicitly.
+node cli.cjs optimize project.3mf --beds 1,2,3,4 \
+  --mode speed -o .local/project-speed.3mf
+```
+
+- **Speed** compares fresh normal-mode slice estimates for the original beds,
+  packed beds and groups using the same tools. It then evaluates up to 16
+  pairwise bed merges, retaining measured improvements. It can split a slow
+  multicolour bed. It selects the fastest *evaluated* layout, not a guaranteed
+  global optimum. Each bed's startup and calibration are included by the slicer.
+- **Fewer beds** chooses the layout with fewer beds between the original layout
+  and deterministic rectangular packing; slice time breaks equal-bed ties.
+  Packing uses a 5 mm bed-edge margin and a 5 mm object gap plus brim allowances. It may increase tool
+  changes, print time and material use. This is a bounded packing heuristic.
+- Both save **one native 3MF containing all selected parts and beds**. Failed
+  trial layouts are reported and excluded. The original layout must slice.
+  The combined project is natively reopened; mesh/paint/settings signatures,
+  printability and per-bed membership are checked. Each bed is then extracted
+  without reconversion and freshly sliced. `validate` also accepts these
+  multi-bed projects; a single CLI G-code export alone checks only one bed.
+
+The installed bed display STL is resolved and recorded in the project. Alpha13
+arranges the full bed frame, not just the printable rectangle: an unresolved
+display mesh in the CLI gives different bed origins from the GUI. Optimization
+uses the same mesh-derived origins and bed spacing in both, while packing and
+bounds checks use coordinates local to each printable bed. Printing settings
+are preserved; only the display asset reference is resolved.
+
+Inputs must have matching printer, material and process configurations (object
+overrides may differ). Newly packed beds also require matching active material
+types and bed-temperature targets; existing mixed-material beds are retained.
+Bambu/Orca inputs must first pass the existing per-bed
+conversion and settings review. This avoids silently losing cross-slicer
+overrides such as a mechanism's finer layers. Sequential printing, custom bed
+G-code, wipe towers, multiple printer groups, non-rectangular packing and
+unrecognized metadata attachments require manual review. Colours are never
+merged by optimization. Eight tools do not print simultaneously.
+
+Run optimization in `.local/`: its sidecar records candidates, seconds, tool
+changes, source/output hashes and per-bed validation. Publish the checked 3MFs
+under peer `Print Files/Speed/` and `Print Files/Fewer Beds/` folders in the
+existing 3D-print project. Keep only a compact record in `Source/`, the untouched
+original in `Reference/`, and useful superseded layouts in `Archive/`. Do not
+copy trial slices, G-code and logs into the project's authoritative print set.
+
 ## Current profiles and maintenance
 
 ```sh
@@ -107,8 +166,9 @@ Keep upstream as `upstream` and the maintained fork as `origin`.
 
 ## Limits
 
-Multi-bed selection is explicit and produces separate one-bed projects. This
-version does not preserve a whole multi-bed project as one native project.
+Conversion selects a source bed explicitly and produces a one-bed project.
+The native `optimize` step above combines configured projects into one multi-bed
+project, or repacks them onto fewer beds, after conversion/settings review.
 Cross-slicer process/override translation is incomplete and reported. Material
 selection is based on source names/types or explicit config, not a live query
 of physically loaded spools. Generic 3MF resource colours/textures are subject

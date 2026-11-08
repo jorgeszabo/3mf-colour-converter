@@ -110,7 +110,8 @@ async function validate(file, slicer, directory) {
   for (const o of model.objects) for (const [i, t] of o.instances.entries()) {
     if (o.instancePrintable[i] === false) continue;
     active++;
-    const b = C.instanceBounds(o, t);
+    const local = t.slice(); local[9] -= group.beds[0].position_x; local[10] -= group.beds[0].position_y;
+    const b = C.instanceBounds(o, local);
     if (b[0] < x0 - 0.01 || b[1] < y0 - 0.01 || b[2] > x1 + 0.01 || b[3] > y1 + 0.01) throw new Error(`Object ${o.name} is outside the target bed. Arrange it before conversion.`);
     for (const v of o.volumes.filter((v) => v.type === 'part')) for (let n = 0; n < v.vertices.length; n += 3) {
       const a = v.vertices;
@@ -142,4 +143,4 @@ async function validate(file, slicer, directory) {
   } finally { fs.rmSync(temp, { recursive: true, force: true }); }
 }
 
-module.exports = { plan, summary, validate, assertHardware };
+module.exports = { plan, summary, validate, assertHardware, runSlicer };
