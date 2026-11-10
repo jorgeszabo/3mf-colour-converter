@@ -75,7 +75,7 @@ node cli.cjs validate /path/to/converted.3mf
 npm test
 ```
 
-Validation checks alpha13, eight 0.4 mm HF INDX tools, INDX material/tool-print
+Validation checks alpha14, eight 0.4 mm HF INDX tools, INDX material/tool-print
 presets, bed bounds, preservation of paint annotations and disabled instances
 through native reopen, actual G-code creation and INDX calibration code. A
 PrusaSlicer exit code of zero without output is a failure. Review any warnings
@@ -153,14 +153,14 @@ npm run refresh-profiles
 node tools/refresh-indx.cjs --slicer /path/to/PrusaSlicer
 ```
 
-The refresh command asks installed alpha13 for the INDX 8T variant, queries
+The refresh command asks installed alpha14 for the INDX 8T variant, queries
 compatible materials and exports fully resolved configurations through the
 slicer itself. It verifies tool hardware and builds `indx-profiles.js`. The
 snapshot records the slicer and vendor versions, and the browser and chat CLI
 both consume it. It includes installed compatible custom materials. Review
 that file before publishing a refreshed snapshot; local outputs stay ignored.
 
-The checked-in snapshot uses alpha13 vendor 1.0.21. Prusa 2.x, Bambu and INDX 4T
+The checked-in snapshot uses alpha14 vendor 1.0.21. Prusa 2.x, Bambu and INDX 4T
 entries remain upstream's profiles; only the INDX 8T / Prusa 3 entry is refreshed.
 Keep upstream as `upstream` and the maintained fork as `origin`.
 
@@ -175,3 +175,14 @@ of physically loaded spools. Generic 3MF resource colours/textures are subject
 to the upstream parser's limitations; check the inspection and rendered slice.
 The browser provides conversion and an audit; native validation requires the
 CLI because a webpage cannot launch the local slicer.
+
+## Explicit process for generated painted meshes
+
+A mapping JSON can include `process: "0.15mm"` to deliberately select an exact
+installed native process and skip source process overrides. Unknown preset names
+are rejected. `segmentedRegionMaxWidth: 1.5` sets a positive paint-region width
+limit (up to 10 mm), and `infillTool: 4` selects a mapped physical tool for the
+unpainted default, infill and bed-temperature reference. These settings apply
+before the very first reopen/slice, preserving the generator's layer schedule.
+Painted regions can still extend into infill. Alpha14 is the current default;
+explicit alpha13 validation remains available for legacy projects.

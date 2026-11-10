@@ -16,7 +16,7 @@ async function main(args) {
   } });
   const [command, input] = positionals;
   if (v.help || !command) {
-    console.log('3mf-chat: inspect FILE | plan FILE | convert FILE -o OUTPUT.3mf | validate FILE | profiles\n          optimize NATIVE.3mf [...] --mode speed|fewer-beds -o OUTPUT.3mf\nOptions: --bed N --beds 1,2,... --material PRESET --config mapping.json --accept-settings-changes\n         --allow-color-merge --target-process --report FILE --slicer PATH --force\nConvert/optimize always reopen and slice in alpha13 before publishing. No printing or uploads.');
+    console.log('3mf-chat: inspect FILE | plan FILE | convert FILE -o OUTPUT.3mf | validate FILE | profiles\n          optimize NATIVE.3mf [...] --mode speed|fewer-beds -o OUTPUT.3mf\nOptions: --bed N --beds 1,2,... --material PRESET --config mapping.json --accept-settings-changes\n         --allow-color-merge --target-process --report FILE --slicer PATH --force\nConvert/optimize always reopen and slice in alpha14 before publishing. No printing or uploads.');
     return;
   }
   if (!['profiles', 'inspect', 'plan', 'convert', 'validate', 'optimize'].includes(command)) throw new Error('Unknown command: ' + command);
@@ -24,7 +24,7 @@ async function main(args) {
   if (command === 'profiles') { console.log(JSON.stringify({ slicer: data.slicerVersion, vendorVersion: data.vendorVersion, printer: data.printerName, materials: Object.keys(data.materials) }, null, 2)); return; }
   if (!input) throw new Error('An input 3MF is required.');
   const file = path.resolve(input);
-  const slicer = v.slicer || process.env.PRUSA_SLICER || '/Applications/PrusaSlicer-3.0.0-alpha13.app/Contents/MacOS/PrusaSlicer';
+  const slicer = v.slicer || process.env.PRUSA_SLICER || '/Applications/PrusaSlicer-3.0.0-alpha14.app/Contents/MacOS/PrusaSlicer';
   if (command === 'optimize') {
     if (!v.output?.toLowerCase().endsWith('.3mf')) throw new Error('Choose a .3mf --output path.');
     if (v.bed || v.material || v.config || v['target-process'] || v['allow-color-merge']) throw new Error('Optimize preserves configured native settings; use --beds for source bed selection and convert materials first.');

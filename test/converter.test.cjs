@@ -94,8 +94,8 @@ test('Prusa multi-bed selection uses source bed origins and rejects ambiguous me
   assert.throws(() => C.selectBed(m, 1), /unambiguously/);
 });
 
-test('current alpha13 hardware and every current material can be written coherently', async () => {
-  assert.equal(data.slicerVersion, '3.0.0-alpha13');
+test('current alpha14 hardware and every current material can be written coherently', async () => {
+  assert.equal(data.slicerVersion, '3.0.0-alpha14');
   W.assertHardware(data.group);
   const m = await load(); m.filaments = [{ color: '#AABBCC', type: 'PETG', name: '' }];
   for (const [name, profile] of Object.entries(data.materials)) {
@@ -154,6 +154,26 @@ test('0.15mm source selects real Detail presets and preserves process choices ac
   assert.equal(projects[0].preset.print.name, '0.15mm');
   assert.equal(projects[1].preset.materials[2].root_id, 'Prusament PETG');
   assert.deepEqual(W.plan(m, data, { targetProcess: true }).report.target.processPreset, '0.20mm');
+});
+
+test('explicit native process and paint depth apply before the first slice', async () => {
+  const m = await load();
+  m.filaments = [{ color: '#AABBCC', type: 'PLA', name: '' }];
+  m.sourceSettings = [{ scope: 'group 1/print_settings', values: { layer_height: 0.2 } }];
+  const config = { process: '0.15mm', map: { 1: 4 }, segmentedRegionMaxWidth: 1.5, infillTool: 4 };
+  const p = W.plan(m, data, { config });
+  assert.equal(p.report.target.layerHeight, 0.15);
+  const c = p.printer.project3.configuration.print_settings;
+  assert.equal(c.mmu_segmented_region_max_width, 1.5);
+  assert.equal(c.infill_extruder, 4);
+  const blob = await C.convert(m, 'prusa', p.map, null, { printer: p.printer });
+  const zip = await C.readZip(new Uint8Array(await blob.arrayBuffer()));
+  const g = JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0];
+  assert.equal(g.configuration.print_settings.layer_height, 0.15);
+  assert.equal(g.configuration.print_settings.infill_extruder, 4);
+  for (const bad of [{ process: 'unknown' }, { segmentedRegionMaxWidth: -1 }, { infillTool: 8 }]) {
+    assert.throws(() => W.plan(m, data, { config: bad }));
+  }
 });
 
 test('validation rejects a slicer exit-zero no-output failure, even with stale G-code', async () => {

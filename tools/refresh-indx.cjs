@@ -8,7 +8,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const { parseArgs } = require('node:util');
 const { values } = parseArgs({ options: { slicer: { type: 'string' }, output: { type: 'string' } } });
-const slicer = values.slicer || process.env.PRUSA_SLICER || '/Applications/PrusaSlicer-3.0.0-alpha13.app/Contents/MacOS/PrusaSlicer';
+const slicer = values.slicer || process.env.PRUSA_SLICER || '/Applications/PrusaSlicer-3.0.0-alpha14.app/Contents/MacOS/PrusaSlicer';
 const output = values.output || path.join(__dirname, '..', 'indx-profiles.js');
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'indx-export-'));
 const run = (...args) => {
@@ -23,7 +23,7 @@ const query = (name, ...args) => {
 };
 try {
   const version = run('--version').trim();
-  if (version !== '3.0.0-alpha13') throw new Error('Expected PrusaSlicer 3.0.0-alpha13, got ' + version);
+  if (!['3.0.0-alpha13', '3.0.0-alpha14'].includes(version)) throw new Error('Expected supported PrusaSlicer alpha13 or alpha14, got ' + version);
   const printers = query('printers', '--query-printer-models');
   const variants = printers.printer_models.flatMap((p) => p.variants || []).flatMap((v) => v.printer_profiles || []);
   const printer = variants.find((p) => p.extruders_cnt === 8 && p.name === 'Prusa CORE One INDX 8T ' + Array(8).fill('0.4 HF').join(', '));

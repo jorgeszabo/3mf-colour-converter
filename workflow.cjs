@@ -15,8 +15,10 @@ function summary(model) {
 
 function plan(model, data, options = {}) {
   const printer = { project3: structuredClone(data.group), format: 3, extruders: 8, colors: [], profiles: [] };
+  const config = options.config || {};
+  if (config.process !== undefined && !Object.hasOwn(data.processes || {}, config.process)) throw new Error('Choose an installed config.process preset.');
   const sourceHeight = (model.sourceSettings || []).filter((s) => s.scope.startsWith('group ') && s.scope.endsWith('/print_settings') && Number.isFinite(s.values.layer_height)).at(-1)?.values.layer_height;
-  const process = !options.targetProcess && Object.values(data.processes || {}).find((p) => Math.abs(p.layerHeight - sourceHeight) < 1e-6);
+  const process = config.process ? data.processes[config.process] : !options.targetProcess && Object.values(data.processes || {}).find((p) => Math.abs(p.layerHeight - sourceHeight) < 1e-6);
   if (process) {
     printer.project3.configuration.print_settings = structuredClone(process.printSettings);
     printer.project3.configuration.toolprint_settings = structuredClone(process.toolprintSettings);
@@ -25,7 +27,6 @@ function plan(model, data, options = {}) {
   }
   const map = [];
   const assignments = [];
-  const config = options.config || {};
   const used = summary(model).usedColors;
   for (const source of used) {
     const tool = Number(config.map && config.map[source] !== undefined ? config.map[source] : source);
@@ -53,7 +54,7 @@ function plan(model, data, options = {}) {
   if (new Set(assignments.map((a) => a.tool)).size < assignments.length && !options.allowColorMerge) throw new Error('Colour merging must be explicitly enabled with --allow-color-merge.');
   const preserved = [];
   // Preserve familiar process choices, never source printer macros, temperatures or machine limits.
-  if (!options.targetProcess) for (const section of model.sourceSettings || []) {
+  if (!options.targetProcess && !config.process) for (const section of model.sourceSettings || []) {
     const key = section.scope.split('/')[1];
     if (!section.scope.startsWith('group ') || !['print_settings', 'toolprint_settings'].includes(key)) continue;
     for (const [name, value] of Object.entries(section.values)) {
@@ -74,6 +75,14 @@ function plan(model, data, options = {}) {
       }
       preserved.push(section.scope + '/' + name);
     }
+  }
+  if (config.segmentedRegionMaxWidth !== undefined) {
+    if (!Number.isFinite(config.segmentedRegionMaxWidth) || config.segmentedRegionMaxWidth <= 0 || config.segmentedRegionMaxWidth > 10) throw new Error('config.segmentedRegionMaxWidth must be greater than zero and at most 10 mm.');
+    printer.project3.configuration.print_settings.mmu_segmented_region_max_width = config.segmentedRegionMaxWidth;
+  }
+  if (config.infillTool !== undefined) {
+    if (!Number.isInteger(config.infillTool) || !assignments.some((a) => a.tool === config.infillTool)) throw new Error('config.infillTool must be a mapped physical tool.');
+    for (const key of ['infill_extruder', 'solid_infill_extruder', 'perimeter_extruder', 'bed_temperature_extruder']) printer.project3.configuration.print_settings[key] = config.infillTool;
   }
   const changes = C.settingsChanges(model, printer, map);
   return { printer, map, report: { source: summary(model), target: { slicer: data.slicerVersion, vendorVersion: data.vendorVersion, printer: data.printerName, toolCount: 8, nozzle: '0.4 HF', activeTools: [...new Set(assignments.map((a) => a.tool))], processPreset: printer.project3.preset.print.name, layerHeight: printer.project3.configuration.print_settings.layer_height }, assignments, preservedProcess: preserved, settingsChanges: changes, selectedBed: model.selectedBed || null, validation: { passed: false, reason: 'Not yet validated' } } };
@@ -97,7 +106,7 @@ async function validate(file, slicer, directory) {
   fs.mkdirSync(directory, { recursive: true });
   const versionRun = spawnSync(slicer, ['--version'], { encoding: 'utf8' });
   const version = ((versionRun.stdout || '') + (versionRun.stderr || '')).trim();
-  if (versionRun.error || versionRun.status !== 0 || version !== '3.0.0-alpha13') throw new Error('Validation requires PrusaSlicer 3.0.0-alpha13.');
+  if (versionRun.error || versionRun.status !== 0 || !['3.0.0-alpha13', '3.0.0-alpha14'].includes(version)) throw new Error('Validation requires supported PrusaSlicer alpha13 or alpha14.');
   const zip = await C.readZip(fs.readFileSync(file));
   const project = JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text());
   if (project.config_containers.length !== 1 || project.config_containers[0].beds.length !== 1) throw new Error('Validate one bed at a time.');

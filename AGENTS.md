@@ -2,7 +2,7 @@
 
 Use `node cli.cjs` from this repository for 3MF work. Read `docs/CHAT_WORKFLOW.md`
 for the concrete commands. The default target is Prusa CORE One INDX 8T, eight
-0.4 mm HF tools, PrusaSlicer 3.0.0-alpha13.
+0.4 mm HF tools, PrusaSlicer 3.0.0-alpha14.
 
 - Inspect first. Conversion of multi-bed files requires explicit `--bed N`, one
   converted output per bed. After reviewing/configuring those native projects,
@@ -15,7 +15,7 @@ for the concrete commands. The default target is Prusa CORE One INDX 8T, eight
   replaced/not transferred. Review them and resolve any important loss before
   passing `--accept-settings-changes`; this CLI flag records an agent's review
   and does not itself require asking the user again.
-- Conversion automatically reopens the actual 3MF and slices with alpha13.
+- Conversion automatically reopens the actual 3MF and slices with alpha14.
   Require `validation.passed: true` in the report and review warnings. Exit code
   alone is insufficient. Slicer success is not a physical-print result.
 - Keep source models untouched. Store local files/reports under `.local/` or in
