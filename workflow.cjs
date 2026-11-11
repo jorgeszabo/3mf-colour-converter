@@ -52,6 +52,16 @@ function plan(model, data, options = {}) {
     assignments.push({ source, tool, sourceColor: f.color || null, sourceType: f.type || null, targetColor: color || null, material: materialName });
   }
   if (new Set(assignments.map((a) => a.tool)).size < assignments.length && !options.allowColorMerge) throw new Error('Colour merging must be explicitly enabled with --allow-color-merge.');
+  // An explicitly configured material may occupy an otherwise unused tool,
+  // e.g. PETG for PLA support interfaces. It is not a model-colour mapping.
+  for (const [slot, materialName] of Object.entries(config.materials || {})) {
+    const tool = Number(slot);
+    if (!Number.isInteger(tool) || tool < 1 || tool > 8 || !data.materials[materialName]) throw new Error('Choose a current material preset and physical tool 1–8.');
+    if (!printer.profiles[tool - 1]) printer.profiles[tool - 1] = data.materials[materialName];
+    const color = (config.colors || {})[tool];
+    if (color && !/^#[0-9a-f]{6}$/i.test(color)) throw new Error('Invalid colour for tool ' + tool);
+    if (color) printer.colors[tool - 1] = color;
+  }
   const preserved = [];
   // Preserve familiar process choices, never source printer macros, temperatures or machine limits.
   if (!options.targetProcess && !config.process) for (const section of model.sourceSettings || []) {

@@ -60,7 +60,10 @@ Numbers are one-based. Unspecified mappings retain source tool numbers.
 `--material` applies one preset to every used tool; config materials take
 precedence. Distinct source colours remain distinct unless the mapping
 deliberately combines them and `--allow-color-merge` is supplied. Review mixed
-material compatibility and colour intent in chat.
+material compatibility and colour intent in chat. Explicit `materials` entries
+for otherwise unused slots are retained, for example PETG in tool 8 for support
+interfaces. They do not add that slot to model paint or the reported active
+model tools; support settings must still be configured deliberately.
 
 ## Validation and outputs
 

@@ -176,6 +176,21 @@ test('explicit native process and paint depth apply before the first slice', asy
   }
 });
 
+test('reserved PETG interface material is retained without painting the model with it', async () => {
+  const m = await load();
+  m.filaments = [{ color: '#AABBCC', type: 'PLA', name: '' }];
+  const petg = Object.keys(data.materials).find((n) => n.startsWith('Generic PETG @'));
+  const config = { map: { 1: 4 }, materials: { 8: petg }, colors: { 8: '#E5ECEF' } };
+  const p = W.plan(m, data, { config });
+  assert.deepEqual(p.report.target.activeTools, [4]);
+  const blob = await C.convert(m, 'prusa', p.map, null, { printer: p.printer });
+  const zip = await C.readZip(new Uint8Array(await blob.arrayBuffer()));
+  const g = JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0];
+  assert.equal(g.preset.materials[7].name, petg);
+  assert.equal(g.configuration.filament_settings.filament_type[7], 'PETG');
+  assert.throws(() => W.plan(m, data, { config: { materials: { 8: 'Unknown PETG' } } }));
+});
+
 test('validation rejects a slicer exit-zero no-output failure, even with stale G-code', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), '3mf-test-'));
   try {
