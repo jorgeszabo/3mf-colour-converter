@@ -189,3 +189,13 @@ unpainted default, infill and bed-temperature reference. These settings apply
 before the very first reopen/slice, preserving the generator's layer schedule.
 Painted regions can still extend into infill. Alpha14 is the current default;
 explicit alpha13 validation remains available for legacy projects.
+
+## Large native colour projects
+
+The layout reader and writer keep model XML as individual resource blocks rather
+than one combined JavaScript string. This allows a bed with several detailed
+painted meshes to exceed V8's whole-string limit without reducing geometry or
+colour detail. Each individual resource still has to fit in a JavaScript string.
+Native reopen checks retain adaptive `layerHeightProfile` data and report the
+actual slicer version. Third-party material profiles also retain their brand in
+the hardware package, so native save does not replace stale Prusament metadata.

@@ -191,6 +191,19 @@ test('reserved PETG interface material is retained without painting the model wi
   assert.throws(() => W.plan(m, data, { config: { materials: { 8: 'Unknown PETG' } } }));
 });
 
+test('third-party material brand is retained in the hardware package', async () => {
+  const m = await load();
+  m.filaments = [{ color: '#AABBCC', type: 'PLA', name: '' }];
+  const material = Object.keys(data.materials).find((name) => data.materials[name].material.features?.['$.brand.slug'] === 'polymaker');
+  assert.ok(material);
+  const p = W.plan(m, data, { material });
+  const blob = await C.convert(m, 'prusa', p.map, null, { printer: p.printer });
+  const zip = await C.readZip(new Uint8Array(await blob.arrayBuffer()));
+  const g = JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0];
+  assert.equal(g.preset.hw_config.tools[0].material_package_instance.package.material.brand.slug, 'polymaker');
+  assert.equal(g.preset.materials[0].name, material);
+});
+
 test('validation rejects a slicer exit-zero no-output failure, even with stale G-code', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), '3mf-test-'));
   try {

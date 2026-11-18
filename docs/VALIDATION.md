@@ -80,3 +80,22 @@ rectangle, while the GUI arranged the full frame. The optimizer now resolves
 the installed STL, uses its frame extents for bed origins/spacing, retains a
 5 mm printable-edge margin, and validates nonzero bed origins in local print
 coordinates. Regression checks cover both edge-touching parts and frame offsets.
+
+## 2026-11-17 — large painted four-object native project
+
+- Reproduced `Invalid string length` when combining four detailed painted models:
+  the combined model XML is 728.8 MiB, larger than V8's whole-string limit.
+- Native layout now reads resource-sized strings from XML bytes and writes
+  separate ZIP parts. No mesh reduction or paint simplification was applied.
+- Alpha14 native reopen, geometry/paint/settings/placement signatures and fresh
+  one-bed slice passed with four objects, native adaptive layer profiles, four
+  negative volumes and four parameter modifiers retained. All six selected PLA
+  tools appeared in actual model extrusion; no support paths or unused tools.
+- Native estimate: 3h 28m 11s, 36.12 g, 425 tool changes. This is a slice result,
+  not a physical print. CLI physical-printer-storage and support-spots diagnostics
+  were retained in the local project validation.
+- Fixed material hardware-package brand metadata to agree with the selected
+  third-party material, and report the actual native slicer version.
+- `node --test test/*.test.cjs`: 35 passed, 0 failed, including the whole-model
+  decoding regression, third-party brand and alpha14 reporting checks.
+- No user model, G-code or detailed slice log is included in the repository.

@@ -1098,7 +1098,13 @@
       if (tool && m.slicerMaterial) {
         tool.slicer_material = Object.assign({}, m.slicerMaterial);
         const pkg = tool.material_package_instance && tool.material_package_instance.package;
-        if (pkg && pkg.material) pkg.material.type = m.slicerMaterial.type;
+        if (pkg && pkg.material) {
+          pkg.material.type = m.slicerMaterial.type;
+          const features = m.material && m.material.features;
+          if (features && features['$.brand.slug'] && features['$.brand.uuid']) {
+            pkg.material.brand = { slug: features['$.brand.slug'], uuid: features['$.brand.uuid'] };
+          }
+        }
       }
     }
   }

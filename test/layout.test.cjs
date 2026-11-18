@@ -35,7 +35,7 @@ function fakeSlicer(dir, mode = 'normal') {
 const fs = require('node:fs'), C = require(${JSON.stringify(path.join(__dirname, '..', 'converter.js'))});
 (async () => {
   const args = process.argv.slice(2), out = args[args.indexOf('--output') + 1], input = args.at(-1);
-  if (args.includes('--version')) { console.error('3.0.0-alpha13'); return; }
+  if (args.includes('--version')) { console.error(${JSON.stringify(mode === 'alpha14' ? '3.0.0-alpha14' : '3.0.0-alpha13')}); return; }
   if (args.includes('--export-3mf')) {
     if (!['corrupt', 'move'].includes(${JSON.stringify(mode)})) { fs.copyFileSync(input, out); return; }
     const z = await C.readZip(fs.readFileSync(input)), files = [];
@@ -92,12 +92,33 @@ test('native multi-bed writing preserves fine layers, painting, tool 8, and disa
     assert.equal(n.model.objects[0].extruder, 8);
     assert.ok(n.project.objects.every((o) => o.object_settings.layer_height === 0.12));
     assert.ok(n.project.objects.every((o) => o.volumes.every((v) => !('extruder' in v.volume_settings))));
-    assert.match(n.xml.slice(0, n.xml.indexOf('<resources')), /MmPaintingVersion/);
+    assert.match(n.prefix, /MmPaintingVersion/);
     assert.equal(L.itemsFor(n, [2]).length, 1);
-    const validation = await L.validateProject(file, fakeSlicer(dir), path.join(dir, 'validation'));
+    const validation = await L.validateProject(file, fakeSlicer(dir, 'alpha14'), path.join(dir, 'validation'));
     assert.equal(validation.beds.length, 2);
     assert.equal(validation.passed, true);
+    assert.equal(validation.slicer, '3.0.0-alpha14');
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('layout reader does not request a whole-model XML string', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), '3mf-layout-'));
+  const readZip = C.readZip;
+  try {
+    const doc = await fixture(dir, 'Dolphin 🐬', 3, { painted: true });
+    C.readZip = async (...args) => {
+      const zip = await readZip(...args), get = zip.get;
+      zip.get = (name) => {
+        const entry = get(name);
+        return name === '3D/3dmodel.model' ? { ...entry, text: async () => { throw new Error('Whole-model decoding exceeds the string limit.'); } } : entry;
+      };
+      return zip;
+    };
+    const loaded = await L.readProject(doc.file);
+    assert.deepEqual(L.itemsFor(loaded, [1]).map(L.signature), L.itemsFor(doc, [1]).map(L.signature));
+    assert.equal(loaded.model.objects[0].name, 'Dolphin 🐬');
+    assert.equal(loaded.resources.size, doc.resources.size);
+  } finally { C.readZip = readZip; fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('speed follows measured time; fewer-beds accepts a slower one-bed result', async () => {

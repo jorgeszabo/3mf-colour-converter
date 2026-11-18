@@ -32,13 +32,25 @@ async function readProject(file) {
       throw new Error('Optimize cannot safely remap this project attachment: ' + entry.name);
     }
   }
-  const xml = await zip.get('3D/3dmodel.model').text();
-  const resources = new Map([...xml.matchAll(/<object\b[^>]*\bid="(\d+)"[^>]*>[\s\S]*?<\/object>/g)].map((m) => [Number(m[1]), m[0]]));
+  // Keep each resource below V8's string limit; a combined model may exceed it.
+  const xml = Buffer.from(await zip.get('3D/3dmodel.model').bytes());
+  const resourceStart = xml.indexOf('<resources'), resourceEnd = xml.indexOf('</resources>');
+  const buildStart = xml.indexOf('<build');
+  if (resourceStart < 0 || resourceEnd < resourceStart || buildStart < resourceEnd) throw new Error('Invalid native model structure.');
+  const prefix = xml.toString('utf8', 0, resourceStart), resources = new Map();
+  for (let start = xml.indexOf('<object', resourceStart); start >= 0 && start < resourceEnd;) {
+    const end = xml.indexOf('</object>', start);
+    if (end < 0 || end > resourceEnd) throw new Error('Unclosed native resource.');
+    const raw = xml.toString('utf8', start, end + 9), id = /<object\b[^>]*\bid="(\d+)"/.exec(raw);
+    if (!id) throw new Error('Native resource has no id.');
+    resources.set(Number(id[1]), raw);
+    start = xml.indexOf('<object', end + 9);
+  }
   const model = await C.load3mf(bytes);
   if (model.badPaint) throw new Error('Repair invalid source paint before optimizing.');
-  const builds = [...xml.slice(xml.indexOf('<build')).matchAll(/<item\b[^>]*\/?>/g)].map((m) => m[0]);
+  const builds = [...xml.toString('utf8', buildStart).matchAll(/<item\b[^>]*\/?>/g)].map((m) => m[0]);
   const facets = zip.get('Metadata/Slic3r_facets_annotation.json');
-  return { file, bytes, zip, xml, resources, builds, project, group, model, facets: facets ? JSON.parse(await facets.text()) : [] };
+  return { file, bytes, zip, prefix, resources, builds, project, group, model, facets: facets ? JSON.parse(await facets.text()) : [] };
 }
 
 function compatible(a, b) {
@@ -181,12 +193,12 @@ async function writeProject(docs, bins, output) {
     for (const [id, raw] of doc.resources) if (used.get(doc).has(id)) resources.push(raw.replace(/(<object\b[^>]*\bid=")(\d+)(")/, (_, a, id, b) => a + ids.get(Number(id)) + b).replace(/\bobjectid="(\d+)"/g, (_, id) => `objectid="${ids.get(Number(id))}"`));
     for (const f of doc.facets) if (used.get(doc).has(f.id)) facets.push({ ...f, id: ids.get(f.id) });
   }
-  let prefix = first.xml.slice(0, first.xml.indexOf('<resources'));
-  for (const doc of docs) for (const m of doc.xml.slice(0, doc.xml.indexOf('<resources')).matchAll(/<metadata name="(slic3rpe:[^"]*PaintingVersion)"[^>]*>[\s\S]*?<\/metadata>/g)) if (!prefix.includes(`name="${m[1]}"`)) prefix += m[0] + '\n';
-  const xml = prefix + '<resources>\n' + resources.join('\n') + '\n</resources>\n<build>\n' + builds.join('\n') + '\n</build>\n</model>';
+  let prefix = first.prefix;
+  for (const doc of docs) for (const m of doc.prefix.matchAll(/<metadata name="(slic3rpe:[^"]*PaintingVersion)"[^>]*>[\s\S]*?<\/metadata>/g)) if (!prefix.includes(`name="${m[1]}"`)) prefix += m[0] + '\n';
+  const xmlParts = [prefix, '<resources>\n', ...resources.flatMap((raw) => [raw, '\n']), '</resources>\n<build>\n', builds.join('\n'), '\n</build>\n</model>'];
   const files = [];
   for (const entry of first.zip.entries.values()) if (!['3d/3dmodel.model', 'metadata/prusaslicer3_project.json', 'metadata/slic3r_facets_annotation.json'].includes(entry.name.toLowerCase())) files.push({ name: entry.name, parts: [await entry.bytes()] });
-  files.push({ name: '3D/3dmodel.model', parts: [xml] }, { name: 'Metadata/PrusaSlicer3_project.json', parts: [JSON.stringify(project, null, 2)] });
+  files.push({ name: '3D/3dmodel.model', parts: xmlParts }, { name: 'Metadata/PrusaSlicer3_project.json', parts: [JSON.stringify(project, null, 2)] });
   if (facets.length) files.push({ name: 'Metadata/Slic3r_facets_annotation.json', parts: [JSON.stringify(facets)] });
   const blob = await C.writeZip(files);
   fs.writeFileSync(output, Buffer.from(await blob.arrayBuffer()));
@@ -243,7 +255,7 @@ async function validateProject(file, slicer, directory) {
     const result = await W.validate(input, slicer, path.join(directory, `bed-${bed}`));
     beds.push({ bed, objects: b.map((i) => i.object.name), ...estimate(fs.readFileSync(result.gcode, 'utf8')), validation: result });
   }
-  return { passed: true, slicer: '3.0.0-alpha13', reopen: true, slice: true, native, beds, estimatedSeconds: beds.reduce((s, b) => s + b.seconds, 0), physicalPrint: false };
+  return { passed: true, slicer: beds[0].validation.slicer, reopen: true, slice: true, native, beds, estimatedSeconds: beds.reduce((s, b) => s + b.seconds, 0), physicalPrint: false };
 }
 
 function cacheKey(bin) { return hash(JSON.stringify(bin.map(({ item, dx, dy }) => [item.key, item.transform, dx, dy]).sort())); }
