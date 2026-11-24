@@ -47,6 +47,9 @@ const fs = require('node:fs'), C = require(${JSON.stringify(path.join(__dirname,
     }
     fs.writeFileSync(out, Buffer.from(await (await C.writeZip(files)).arrayBuffer())); return;
   }
+  const archive = await C.readZip(fs.readFileSync(input));
+  const config = JSON.parse(await archive.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0].configuration;
+  if (config.printer_settings.binary_gcode || config.print_settings.output_filename_format.endsWith('.bgcode')) throw new Error('Audit slice would be binary.');
   const model = await C.load3mf(fs.readFileSync(input)), names = model.objects.map(o => o.name).sort().join(',');
   if (${JSON.stringify(mode)} === 'reject-merges' && model.objects.length > 1) { console.log('slicing failed'); return; }
   const seconds = { A: 100, B: 70, C: 60, 'A,B': 120, 'A,C': 300, 'B,C': 200, 'A,B,C': 500 }[names] || 100;
@@ -98,6 +101,9 @@ test('native multi-bed writing preserves fine layers, painting, tool 8, and disa
     assert.equal(validation.beds.length, 2);
     assert.equal(validation.passed, true);
     assert.equal(validation.slicer, '3.0.0-alpha14');
+    const reopened = await L.readProject(validation.native);
+    assert.equal(reopened.group.configuration.printer_settings.binary_gcode, true);
+    assert.match(reopened.group.configuration.print_settings.output_filename_format, /\.bgcode$/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 

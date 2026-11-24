@@ -152,10 +152,27 @@ async function validate(file, slicer, directory) {
     const reloaded = await C.load3mf(fs.readFileSync(native));
     if (C.usage(reloaded).paintedTriangles !== C.usage(model).paintedTriangles) throw new Error('Painting changed during native reopen.');
     if (summary(reloaded).disabledInstances !== summary(model).disabledInstances) throw new Error('Disabled instances changed during native reopen.');
-    const log = runSlicer(slicer, ['--threads', '2', '--dont-arrange', '--export-gcode', '--output', gcode, native], path.join(directory, 'slice.log'));
+    // Alpha14 can emit binary G-code even when the CLI output path ends in .gcode.
+    // Keep the native project intact and request readable toolpaths on an audit copy.
+    const { printer_settings: printerSettings, print_settings: printSettings } = nativeProject.config_containers[0].configuration;
+    const filenameFormat = printSettings.output_filename_format || '';
+    let sliceInput = native;
+    if (printerSettings.binary_gcode || /\.bgcode$/i.test(filenameFormat)) {
+      printerSettings.binary_gcode = false;
+      if (filenameFormat) printSettings.output_filename_format = filenameFormat.replace(/\.bgcode$/i, '.gcode');
+      const entries = [];
+      for (const entry of nativeZip.entries.values()) {
+        const data = entry.name === 'Metadata/PrusaSlicer3_project.json' ? JSON.stringify(nativeProject) : await entry.bytes();
+        entries.push({ name: entry.name, parts: [data] });
+      }
+      const auditProject = await C.writeZip(entries);
+      sliceInput = path.join(temp, 'audit.3mf');
+      fs.writeFileSync(sliceInput, Buffer.from(await auditProject.arrayBuffer()));
+    }
+    const log = runSlicer(slicer, ['--threads', '2', '--dont-arrange', '--export-gcode', '--output', gcode, sliceInput], path.join(directory, 'slice.log'));
     if (!/Slicing result exported to/.test(log) || /outside of the print volume|slicing failed|G-code export failed/i.test(log) || !fs.existsSync(gcode) || !fs.statSync(gcode).size) throw new Error('Slicing produced no valid G-code; inspect slice.log.');
     const text = fs.readFileSync(gcode, 'utf8');
-    if (!text.includes('G427') || /^EXCLUDE_E_(START|END)\s*$/m.test(text)) throw new Error('Unexpected INDX G-code; check current printer presets.');
+    if (text.startsWith('GCDE') || !text.includes('G427') || /^EXCLUDE_E_(START|END)\s*$/m.test(text)) throw new Error('Unexpected INDX G-code; check current printer presets.');
     fs.copyFileSync(native, path.join(directory, 'reopened.3mf'));
     fs.copyFileSync(gcode, path.join(directory, 'sliced.gcode'));
     return { passed: true, slicer: version, hardware: 'CORE One INDX 8T / 8 x 0.4 HF', reopen: true, slice: true, gcode: path.join(directory, 'sliced.gcode'), warnings: log.split('\n').filter((l) => /warning|error/i.test(l)), physicalPrint: false };

@@ -47,7 +47,7 @@ try {
   if (!group) throw new Error('Generic PLA baseline is missing.');
   // Keep exports portable and unbound to an empty slicer bed/session.
   group.beds = [{ position_x: 0, position_y: 0, wipe_tower: null, custom_gcode: null }];
-  group.configuration.printer_settings.binary_gcode = false;
+  group.configuration.printer_settings.binary_gcode = true;
   const processes = {};
   for (const option of options.print_profiles) {
     let g = group;
@@ -56,7 +56,9 @@ try {
       run('--printer-profile', printer.name, '--print-profile', option.name, '--tool-print-profile', option.tool_print_profiles[0], '--material-profile', 'Generic PLA @COREONEINDX HF0.4@COREONEINDX 0.4', '--save', file);
       g = JSON.parse(fs.readFileSync(file, 'utf8'));
     }
-    processes[option.name] = { layerHeight: g.configuration.print_settings.layer_height, print: g.preset.print, tools: g.preset.tools, printSettings: g.configuration.print_settings, toolprintSettings: g.configuration.toolprint_settings };
+    const printSettings = g.configuration.print_settings;
+    printSettings.output_filename_format = printSettings.output_filename_format.replace(/\.gcode$/i, '.bgcode');
+    processes[option.name] = { layerHeight: printSettings.layer_height, print: g.preset.print, tools: g.preset.tools, printSettings, toolprintSettings: g.configuration.toolprint_settings };
   }
   const data = { schemaVersion: 1, slicerVersion: version, vendorVersion: group.preset.hw_config.repo_version, printerName: printer.name, group, materials, processes };
   const js = '// Generated from installed PrusaSlicer presets by tools/refresh-indx.cjs. AGPL-3.0.\n' +

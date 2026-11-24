@@ -104,6 +104,8 @@ test('current alpha14 hardware and every current material can be written coheren
     const z = await C.readZip(new Uint8Array(await b.arrayBuffer()));
     const g = JSON.parse(await z.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0];
     W.assertHardware(g);
+    assert.equal(g.configuration.printer_settings.binary_gcode, true);
+    assert.match(g.configuration.print_settings.output_filename_format, /\.bgcode$/);
     assert.equal(g.configuration.filament_settings.filament_type[0], profile.type);
     assert.equal(g.configuration.filament_settings.temperature[0], profile.filament.temperature);
     assert.equal(g.preset.hw_config.tools[0].slicer_material.type, profile.type);
@@ -122,6 +124,7 @@ test('plan preserves process choices and reports dropped overrides', async () =>
   m.sourceSettings = [{ scope: 'group 1/print_settings', values: { layer_height: 0.15, perimeters: 5, fill_density: { value: 40, is_percent: true } } }, { scope: 'object 1', values: { custom_speed: 7 } }];
   const p = W.plan(m, data);
   assert.equal(p.printer.project3.configuration.print_settings.layer_height, 0.15);
+  assert.match(p.printer.project3.configuration.print_settings.output_filename_format, /\.bgcode$/);
   assert.equal(p.printer.project3.configuration.print_settings.perimeters, 5);
   assert.deepEqual(p.printer.project3.configuration.toolprint_settings.perimeters, Array(8).fill(5));
   assert.equal(p.printer.profiles[0].type, 'PETG');
@@ -194,13 +197,16 @@ test('reserved PETG interface material is retained without painting the model wi
 test('third-party material brand is retained in the hardware package', async () => {
   const m = await load();
   m.filaments = [{ color: '#AABBCC', type: 'PLA', name: '' }];
-  const material = Object.keys(data.materials).find((name) => data.materials[name].material.features?.['$.brand.slug'] === 'polymaker');
-  assert.ok(material);
-  const p = W.plan(m, data, { material });
+  const material = Object.keys(data.materials).find((name) => name.startsWith('Generic PLA '));
+  const branded = structuredClone(data.materials[material]);
+  const brand = { slug: 'example-filament', uuid: 'd668049e-e22e-4aea-a524-cf02e41acdb0' };
+  branded.material.features = { ...branded.material.features, '$.brand.slug': brand.slug, '$.brand.uuid': brand.uuid };
+  const profiles = { ...data, materials: { ...data.materials, [material]: branded } };
+  const p = W.plan(m, profiles, { material });
   const blob = await C.convert(m, 'prusa', p.map, null, { printer: p.printer });
   const zip = await C.readZip(new Uint8Array(await blob.arrayBuffer()));
   const g = JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text()).config_containers[0];
-  assert.equal(g.preset.hw_config.tools[0].material_package_instance.package.material.brand.slug, 'polymaker');
+  assert.deepEqual(g.preset.hw_config.tools[0].material_package_instance.package.material.brand, brand);
   assert.equal(g.preset.materials[0].name, material);
 });
 
