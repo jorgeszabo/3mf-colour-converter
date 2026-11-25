@@ -32,6 +32,8 @@ try {
   const print = options.print_profiles.find((p) => p.name === '0.20mm');
   if (!print) throw new Error('No 0.20mm INDX print profile found.');
   const materials = {};
+  const genericPla = print.filament_profiles.find((name) => /^Generic PLA\s*@/.test(name));
+  if (!genericPla) throw new Error('Generic PLA baseline is missing.');
   let group;
   for (const [i, name] of [...new Set(print.filament_profiles)].entries()) {
     const file = path.join(temp, `material-${i}.json`);
@@ -41,7 +43,7 @@ try {
     if (hw.tool_count !== 8 || Object.values(hw.tools).some((t) => t.features.nozzle_diameter !== 0.4 || !t.features.nozzle_high_flow)) throw new Error('Exported hardware mismatch.');
     const filament = Object.fromEntries(Object.entries(g.configuration.filament_settings).map(([k, v]) => [k, v[0]]));
     materials[name] = { type: filament.filament_type, filament, material: g.preset.materials[0], slicerMaterial: hw.tools[0].slicer_material };
-    if (name.startsWith('Generic PLA @')) group = g;
+    if (name === genericPla) group = g;
     process.stdout.write(`Exported ${name}\n`);
   }
   if (!group) throw new Error('Generic PLA baseline is missing.');
@@ -53,7 +55,7 @@ try {
     let g = group;
     if (option.name !== print.name) {
       const file = path.join(temp, 'process-' + option.name + '.json');
-      run('--printer-profile', printer.name, '--print-profile', option.name, '--tool-print-profile', option.tool_print_profiles[0], '--material-profile', 'Generic PLA @COREONEINDX HF0.4@COREONEINDX 0.4', '--save', file);
+      run('--printer-profile', printer.name, '--print-profile', option.name, '--tool-print-profile', option.tool_print_profiles[0], '--material-profile', genericPla, '--save', file);
       g = JSON.parse(fs.readFileSync(file, 'utf8'));
     }
     const printSettings = g.configuration.print_settings;

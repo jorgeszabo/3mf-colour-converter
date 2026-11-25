@@ -38,7 +38,7 @@ function plan(model, data, options = {}) {
     if (!materialName) materialName = names.find((n) => n === f.name) || names.find((n) => data.materials[n].material.root_id === f.name);
     if (!materialName) {
       const type = f.type === 'TPU' ? 'FLEX' : f.type;
-      materialName = names.find((n) => n.startsWith(`Generic ${type}`) && data.materials[n].type === type);
+      materialName = names.find((n) => n.split('@', 1)[0].trim() === `Generic ${type}` && data.materials[n].type === type);
     }
     if (!materialName || !data.materials[materialName]) throw new Error(`Choose a current material preset for source colour ${source} with --material or config.materials. Run 'profiles' for names.`);
     if (printer.profiles[tool - 1] && printer.profiles[tool - 1].material.name !== materialName) throw new Error('Merged colours request different materials on tool ' + tool);

@@ -119,6 +119,13 @@ test('browser saved-printer defaults choose Generic PLA rather than PLA Silk', (
   assert.equal(Object.keys(window.PRUSA_PROFILES[0].filaments3).length, Object.keys(data.materials).length);
 });
 
+test('unnamed PLA uses ordinary Generic PLA with current preset names', async () => {
+  const m = await load();
+  m.filaments = [{ color: '#FFFFFF', type: 'PLA', name: '' }];
+  const p = W.plan(m, data);
+  assert.equal(p.printer.profiles[0].material.root_id, 'Generic PLA');
+});
+
 test('plan preserves process choices and reports dropped overrides', async () => {
   const m = await load(); m.filaments = [{ color: '#AABBCC', type: 'PETG', name: '' }];
   m.sourceSettings = [{ scope: 'group 1/print_settings', values: { layer_height: 0.15, perimeters: 5, fill_density: { value: 40, is_percent: true } } }, { scope: 'object 1', values: { custom_speed: 7 } }];
@@ -138,7 +145,7 @@ test('0.15mm source selects real Detail presets and preserves process choices ac
     { scope: 'group 1/print_settings', values: { layer_height: 0.15, perimeters: 5, fill_density: { value: 40, is_percent: true } } },
     { scope: 'group 1/toolprint_settings', values: { perimeters: Array(8).fill(5), fill_density: Array.from({ length: 8 }, () => ({ value: 40, is_percent: true })) } }
   ];
-  const names = ['Generic PETG @', 'Prusament PETG @'].map((prefix) => Object.keys(data.materials).find((n) => n.startsWith(prefix)));
+  const names = [/^Generic PETG\s*@/, /^Prusament PETG\s*@/].map((pattern) => Object.keys(data.materials).find((n) => pattern.test(n)));
   assert.ok(names.every(Boolean));
   const projects = [];
   for (const material of names) {
@@ -182,7 +189,7 @@ test('explicit native process and paint depth apply before the first slice', asy
 test('reserved PETG interface material is retained without painting the model with it', async () => {
   const m = await load();
   m.filaments = [{ color: '#AABBCC', type: 'PLA', name: '' }];
-  const petg = Object.keys(data.materials).find((n) => n.startsWith('Generic PETG @'));
+  const petg = Object.keys(data.materials).find((n) => /^Generic PETG\s*@/.test(n));
   const config = { map: { 1: 4 }, materials: { 8: petg }, colors: { 8: '#E5ECEF' } };
   const p = W.plan(m, data, { config });
   assert.deepEqual(p.report.target.activeTools, [4]);
@@ -197,7 +204,7 @@ test('reserved PETG interface material is retained without painting the model wi
 test('third-party material brand is retained in the hardware package', async () => {
   const m = await load();
   m.filaments = [{ color: '#AABBCC', type: 'PLA', name: '' }];
-  const material = Object.keys(data.materials).find((name) => name.startsWith('Generic PLA '));
+  const material = Object.keys(data.materials).find((name) => /^Generic PLA\s*@/.test(name));
   const branded = structuredClone(data.materials[material]);
   const brand = { slug: 'example-filament', uuid: 'd668049e-e22e-4aea-a524-cf02e41acdb0' };
   branded.material.features = { ...branded.material.features, '$.brand.slug': brand.slug, '$.brand.uuid': brand.uuid };
