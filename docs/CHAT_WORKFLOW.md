@@ -78,7 +78,7 @@ node cli.cjs validate /path/to/converted.3mf
 npm test
 ```
 
-Validation checks alpha14, eight 0.4 mm HF INDX tools, INDX material/tool-print
+Validation checks alpha15, eight 0.4 mm HF INDX tools, INDX material/tool-print
 presets, bed bounds, preservation of paint annotations and disabled instances
 through native reopen, actual G-code creation and INDX calibration code. A
 PrusaSlicer exit code of zero without output is a failure. Review any warnings
@@ -156,14 +156,14 @@ npm run refresh-profiles
 node tools/refresh-indx.cjs --slicer /path/to/PrusaSlicer
 ```
 
-The refresh command asks installed alpha14 for the INDX 8T variant, queries
+The refresh command asks installed alpha15 for the INDX 8T variant, queries
 compatible materials and exports fully resolved configurations through the
 slicer itself. It verifies tool hardware and builds `indx-profiles.js`. The
 snapshot records the slicer and vendor versions, and the browser and chat CLI
 both consume it. It includes installed compatible custom materials. Review
 that file before publishing a refreshed snapshot; local outputs stay ignored.
 
-The checked-in snapshot uses alpha14 vendor 1.0.21. Prusa 2.x, Bambu and INDX 4T
+The refresh records the current slicer and vendor versions in the snapshot. Prusa 2.x, Bambu and INDX 4T
 entries remain upstream's profiles; only the INDX 8T / Prusa 3 entry is refreshed.
 Keep upstream as `upstream` and the maintained fork as `origin`.
 

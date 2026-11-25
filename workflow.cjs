@@ -116,7 +116,7 @@ async function validate(file, slicer, directory) {
   fs.mkdirSync(directory, { recursive: true });
   const versionRun = spawnSync(slicer, ['--version'], { encoding: 'utf8' });
   const version = ((versionRun.stdout || '') + (versionRun.stderr || '')).trim();
-  if (versionRun.error || versionRun.status !== 0 || !['3.0.0-alpha13', '3.0.0-alpha14'].includes(version)) throw new Error('Validation requires supported PrusaSlicer alpha13 or alpha14.');
+  if (versionRun.error || versionRun.status !== 0 || !['3.0.0-alpha13', '3.0.0-alpha14', '3.0.0-alpha15'].includes(version)) throw new Error('Validation requires supported PrusaSlicer alpha13, alpha14 or alpha15.');
   const zip = await C.readZip(fs.readFileSync(file));
   const project = JSON.parse(await zip.get('Metadata/PrusaSlicer3_project.json').text());
   if (project.config_containers.length !== 1 || project.config_containers[0].beds.length !== 1) throw new Error('Validate one bed at a time.');

@@ -94,8 +94,8 @@ test('Prusa multi-bed selection uses source bed origins and rejects ambiguous me
   assert.throws(() => C.selectBed(m, 1), /unambiguously/);
 });
 
-test('current alpha14 hardware and every current material can be written coherently', async () => {
-  assert.equal(data.slicerVersion, '3.0.0-alpha14');
+test('current supported-alpha hardware and every current material can be written coherently', async () => {
+  assert.match(data.slicerVersion, /^3\.0\.0-alpha(?:13|14|15)$/);
   W.assertHardware(data.group);
   const m = await load(); m.filaments = [{ color: '#AABBCC', type: 'PETG', name: '' }];
   for (const [name, profile] of Object.entries(data.materials)) {
